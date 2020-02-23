@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log"
 	"time"
-
-	client "github.com/influxdata/influxdb1-client/v2"
+	//"github.com/influxdata/influxdb1-client/v2"
+	client "github.com/influxdata/influxdb1-client"
 )
 
 // influxdb demo

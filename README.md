@@ -11,6 +11,9 @@ influxdb相关操作
 ### kafka 
 kafka生产消费操作 
 
+### mongo
+mongo相关操作
+
 ### mysql
 mysql数据库操作简单实例
 

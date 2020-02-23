@@ -3,21 +3,20 @@ package hbase
 import (
 	"errors"
 	"fmt"
-	"io"
+	"github.com/alecthomas/log4go"
 	"github.com/tsuna/gohbase"
-	"github.com/tsuna/gohbase/hrpc"
+	"github.com/tsuna/gohbase/filter"
 	"github.com/tsuna/gohbase/hrpc"
 	"golang.org/x/net/context"
-	"github.com/alecthomas/log4go"
-
+	"io"
 )
 
 var client gohbase.Client
 
 // Hbase的连接
 func ConnectHBase() {
-	hbaseUrl := beego.AppConfig.String("hbaseHost")
-	user := beego.AppConfig.String("userName")
+	hbaseUrl := "hbaseHost"
+	user := "userName"
 	option := gohbase.EffectiveUser(user)
 	client = gohbase.NewClient(hbaseUrl, option)
 
@@ -38,7 +37,7 @@ func PutsByRowkey(table, rowKey string, values map[string]map[string][]byte) err
 	return nil
 }
 
-func UpdataHbase(table, rowKey string, values map[string]map[string][]byte)  error {
+func UpdataHbase(table, rowKey string, values map[string]map[string][]byte) error {
 	putRequest, err := hrpc.NewPutStr(context.Background(), table, rowKey, values)
 	if err != nil {
 		log4go.Error("hrpc.NewPutStr: %s", err.Error())
@@ -100,7 +99,7 @@ func IsExistRowkey(table, rowKey string) bool {
 }
 
 // 删除数据
-func DeleteByRowkey(table, rowkey string, value map[string]map[string][]byte)  error {
+func DeleteByRowkey(table, rowkey string, value map[string]map[string][]byte) error {
 	deleteRequest, err := hrpc.NewDelStr(context.Background(), table, rowkey, value)
 	if err != nil {
 		log4go.Error("hrpc.NewDelStrRef: %s", err.Error())
@@ -144,8 +143,8 @@ func PagedQuery(table, startRow, stopRow string, limit int64) (rsp []*hrpc.Resul
 	return rsp, err
 }
 
-func GetHbaseIndex(startRow,stopRow, table string, limit int64) (rsp []*hrpc.Result, str string) {
-	var nextIndex  string
+func GetHbaseIndex(startRow, stopRow, table string, limit int64) (rsp []*hrpc.Result, str string) {
+	var nextIndex string
 	temScanner, err := PagedQuery(table, startRow, stopRow, limit)
 	if err != nil {
 		fmt.Println("GetHbaseIndex with limit: ", err)
