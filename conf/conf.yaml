@@ -1,0 +1,4 @@
+host: localhost:3306
+user: tigerwolfc
+pwd: 654321
+dbname: tablename
