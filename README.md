@@ -8,6 +8,9 @@
 ### conf
 读取配置文件数据
 
+### elasticsearch
+elasticsearchy相关操作
+
 ### hbase
 常见文件相关操作
 
