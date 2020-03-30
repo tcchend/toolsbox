@@ -1,226 +1,160 @@
 package elasticsearch
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"github.com/olivere/elastic"
-	"log"
-	"os"
-	"reflect"
+	"strconv"
+	"time"
 )
 
+var host = []string{
+	"http://10.42.0.120:9200/",
+	"http://10.42.0.122:9200/",
+	"http://10.42.0.123:9200/",
+}
+
 var client *elastic.Client
-var host = "http://192.168.52.128:9200/"
-
-type Employee struct {
-	FirstName string   `json:"first_name"`
-	LastName  string   `json:"last_name"`
-	Age       int      `json:"age"`
-	About     string   `json:"about"`
-	Interests []string `json:"interests"`
-}
-
-type mail struct {
-	From string `json:"from"`
-	Date string `json:"date"`
-	Subject string `json:"subject"`
-	Body string `json:"body"`
-}
 
 //初始化
-func NewRedisClient() error{
-	errorLog := log.New(os.Stdout, "APP", log.LstdFlags)
+func init() {
 	var err error
-	client, err = elastic.NewClient(elastic.SetErrorLog(errorLog), elastic.SetURL(host))
+	client, err = elastic.NewClient(elastic.SetURL(host...))
 	if err != nil {
-		return err
+		fmt.Printf("create client failed, err: %v", err)
 	}
-	info, code, err := client.Ping(host).Do(context.Background())
+}
+
+//ping 连接测试
+func PingNode() {
+	start := time.Now()
+
+	info, code, err := client.Ping(host[0]).Do(context.Background())
 	if err != nil {
-		return err
+		fmt.Printf("ping es failed, err: %v", err)
 	}
+
+	duration := time.Since(start)
+	fmt.Printf("cost time: %v\n", duration)
 	fmt.Printf("Elasticsearch returned with code %d and version %s\n", code, info.Version.Number)
+}
 
-	version, err := client.ElasticsearchVersion(host)
+//校验 index 是否存在
+func IndexExists(index ...string) bool {
+	exists, err := client.IndexExists(index...).Do(context.Background())
+	if err != nil {
+		fmt.Printf("%v\n", err)
+	}
+	return exists
+}
+
+//创建 index
+func CreateIndex(index, mapping string) bool {
+	result, err := client.CreateIndex(index).BodyString(mapping).Do(context.Background())
+	if err != nil {
+		fmt.Printf("create index failed, err: %v\n", err)
+	}
+	return result.Acknowledged
+}
+
+//删除 index
+func DelIndex(index... string) bool {
+	response, err := client.DeleteIndex(index...).Do(context.Background())
+	if err != nil {
+		fmt.Printf("delete index failed, err: %v\n", err)
+	}
+	return response.Acknowledged
+}
+
+//批量插入
+func Batch(index string, type_ string, datas... interface{})  {
+
+	bulkRequest := client.Bulk()
+	for i, data := range datas {
+		doc := elastic.NewBulkIndexRequest().Index(index).Type(type_).Id(strconv.Itoa(i)).Doc(data)
+		bulkRequest = bulkRequest.Add(doc)
+	}
+
+	response, err := bulkRequest.Do(context.TODO())
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("Elasticsearch version %s\n", version)
-
+	failed := response.Failed()
+	iter := len(failed)
+	fmt.Printf("error: %v, %v\n", response.Errors,  iter)
 }
 
-/*下面是简单的CURD*/
-
-//创建
-func create() {
-
-	//使用结构体
-	e1 := Employee{"Jane", "Smith", 32, "I like to collect rock albums", []string{"music"}}
-	put1, err := client.Index().
-		Index("megacorp").
-		Type("employee").
-		Id("1").
-		BodyJson(e1).
-		Do(context.Background())
+//获取指定 Id 的文档
+func GetDoc(index, id string) []byte {
+	temp := client.Get().Index(index).Id(id)
+	get, err := temp.Do(context.Background())
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("Indexed tweet %s to index s%s, type %s\n", put1.Id, put1.Index, put1.Type)
+	if get.Found {
+		fmt.Printf("Got document %s in version %d from index %s, type %s\n", get.Id, get.Version, get.Index, get.Type)
+	}
+	source, err := get.Source.MarshalJSON()
+	if err != nil {
+		fmt.Printf("byte convert string failed, err: %v", err)
+	}
+	return source
+}
 
-	//使用字符串
-	e2 := `{"first_name":"John","last_name":"Smith","age":25,"about":"I love to go rock climbing","interests":["sports","music"]}`
-	put2, err := client.Index().
-		Index("megacorp").
-		Type("employee").
-		Id("2").
-		BodyJson(e2).
+//term 查询
+func TermQuery(index, type_, fieldName, fieldValue string) *elastic.SearchResult {
+	query := elastic.NewTermQuery(fieldName, fieldValue)
+	//_ = elastic.NewQueryStringQuery(fieldValue) //关键字查询
+
+	searchResult, err := client.Search().
+		Index(index).Type(type_).
+		Query(query).
+		From(0).Size(10).
+		Pretty(true).
 		Do(context.Background())
+
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("Indexed tweet %s to index s%s, type %s\n", put2.Id, put2.Index, put2.Type)
+	fmt.Printf("query cost %d millisecond.\n", searchResult.TookInMillis)
 
-	e3 := `{"first_name":"Douglas","last_name":"Fir","age":35,"about":"I like to build cabinets","interests":["forestry"]}`
-	put3, err := client.Index().
-		Index("megacorp").
-		Type("employee").
-		Id("3").
-		BodyJson(e3).
-		Do(context.Background())
+	return searchResult
+}
+
+func Search(index, type_ string) *elastic.SearchResult {
+	boolQuery := elastic.NewBoolQuery()
+	boolQuery.Must(elastic.NewMatchQuery("user", "Jame10"))
+	boolQuery.Filter(elastic.NewRangeQuery("age").Gt("30"))
+	searchResult, err := client.Search(index).
+		Type(type_).Query(boolQuery).Pretty(true).Do(context.Background())
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("Indexed tweet %s to index s%s, type %s\n", put3.Id, put3.Index, put3.Type)
 
+	return searchResult
 }
 
-//删除
-func delete() {
+func AggsSearch(index, type_ string) {
 
-	res, err := client.Delete().Index("megacorp").
-		Type("employee").
-		Id("1").
-		Do(context.Background())
-	if err != nil {
-		println(err.Error())
-		return
-	}
-	fmt.Printf("delete result %s\n", res.Result)
-}
+	minAgg := elastic.NewMinAggregation().Field("age")
+	rangeAgg := elastic.NewRangeAggregation().Field("age").AddRange(0,30).AddRange(30,60).Gt(60)
 
-//修改
-func update() {
-	res, err := client.Update().
-		Index("megacorp").
-		Type("employee").
-		Id("2").
-		Doc(map[string]interface{}{"age": 88}).
-		Do(context.Background())
-	if err != nil {
-		println(err.Error())
-	}
-	fmt.Printf("update age %s\n", res.Result)
 
-}
+	build := client.Search(index).Type(type_).Pretty(true)
 
-//查找
-func gets() {
-	//通过id查找
-	get1, err := client.Get().Index("megacorp").Type("employee").Id("2").Do(context.Background())
+	minResult, err := build.Aggregation("minAgg", minAgg).Do(context.Background())
+	rangeResult, err := build.Aggregation("rangeAgg", rangeAgg).Do(context.Background())
 	if err != nil {
 		panic(err)
 	}
-	if get1.Found {
-		fmt.Printf("Got document %s in version %d from index %s, type %s\n", get1.Id, get1.Version, get1.Index, get1.Type)
+
+	minAggRes, _ := minResult.Aggregations.Min("minAgg")
+	fmt.Printf("min: %v\n", *minAggRes.Value)
+
+	rangeAggRes, _ := rangeResult.Aggregations.Range("rangeAgg")
+	for _, item := range rangeAggRes.Buckets {
+		fmt.Printf("key: %s, value: %v\n", item.Key, item.DocCount)
 	}
-}
-
-//搜索
-func query() {
-	var res *elastic.SearchResult
-	var err error
-	//取所有
-	res, err = client.Search("megacorp").Type("employee").Do(context.Background())
-	printEmployee(res, err)
-
-	//字段相等
-	q := elastic.NewQueryStringQuery("last_name:Smith")
-	res, err = client.Search("megacorp").Type("employee").Query(q).Do(context.Background())
-	if err != nil {
-		println(err.Error())
-	}
-	printEmployee(res, err)
-
-	if res.Hits.TotalHits > 0 {
-		fmt.Printf("Found a total of %d Employee \n", res.Hits.TotalHits)
-
-		for _, hit := range res.Hits.Hits {
-
-			var t Employee
-			err := json.Unmarshal(*hit.Source, &t) //另外一种取数据的方法
-			if err != nil {
-				fmt.Println("Deserialization failed")
-			}
-
-			fmt.Printf("Employee name %s : %s\n", t.FirstName, t.LastName)
-		}
-	} else {
-		fmt.Printf("Found no Employee \n")
-	}
-
-	//条件查询
-	//年龄大于30岁的
-	boolQ := elastic.NewBoolQuery()
-	boolQ.Must(elastic.NewMatchQuery("last_name", "smith"))
-	boolQ.Filter(elastic.NewRangeQuery("age").Gt(30))
-	res, err = client.Search("megacorp").Type("employee").Query(q).Do(context.Background())
-	printEmployee(res, err)
-
-	//短语搜索 搜索about字段中有 rock climbing
-	matchPhraseQuery := elastic.NewMatchPhraseQuery("about", "rock climbing")
-	res, err = client.Search("megacorp").Type("employee").Query(matchPhraseQuery).Do(context.Background())
-	printEmployee(res, err)
-
-	//分析 interests
-	aggs := elastic.NewTermsAggregation().Field("interests")
-	res, err = client.Search("megacorp").Type("employee").Aggregation("all_interests", aggs).Do(context.Background())
-	printEmployee(res, err)
 
 }
 
-//简单分页
-func list(size,page int) {
-	if size < 0 || page < 1 {
-		fmt.Printf("param error")
-		return
-	}
-	res,err := client.Search("megacorp").
-		Type("employee").
-		Size(size).
-		From((page-1)*size).
-		Do(context.Background())
-	printEmployee(res, err)
-
-}
-
-//打印查询到的Employee
-func printEmployee(res *elastic.SearchResult, err error) {
-	if err != nil {
-		print(err.Error())
-		return
-	}
-	var typ Employee
-	for _, item := range res.Each(reflect.TypeOf(typ)) { //从搜索结果中取数据的方法
-		t := item.(Employee)
-		fmt.Printf("%#v\n", t)
-	}
-}
-
-func main() {
-	create()
-	delete()
-	update()
-	gets()
-	query()
-	list(10,10)
-}
