@@ -1,3 +1,6 @@
+/*
+  judge the type of interface
+ */
 package others
 
 import "fmt"
